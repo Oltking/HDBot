@@ -1,0 +1,31 @@
+# Render Blueprint for the SLP trading bot.
+# Deploys as a Background Worker (always-on, no web port) with a persistent disk
+# so the trade journal + open-position state survive restarts/redeploys.
+#
+# Secrets (DERIV_API_TOKEN, DERIV_APP_ID) are NOT in this file — set them in the
+# Render dashboard (marked `sync: false` below so Render prompts for them).
+services:
+  - type: worker
+    name: slp-trading-bot
+    runtime: python
+    plan: starter            # paid tier: required for always-on + a disk
+    autoDeploy: false        # deploy manually so you control when it restarts
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m slp.live --live-demo
+    envVars:
+      - key: PYTHONUNBUFFERED   # so logs stream live to the Render console
+        value: "1"
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: SLP_LOG_DIR        # trade journal -> persistent disk
+        value: /data/logs
+      - key: SLP_STATE_DIR      # open-position state -> persistent disk
+        value: /data/state
+      - key: DERIV_API_TOKEN    # set in dashboard (secret)
+        sync: false
+      - key: DERIV_APP_ID       # set in dashboard
+        sync: false
+    disk:
+      name: slp-data
+      mountPath: /data
+      sizeGB: 1
