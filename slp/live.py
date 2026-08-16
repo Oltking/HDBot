@@ -50,6 +50,7 @@ class SymbolState:
     h1_bucket: list[Candle] = field(default_factory=list)
     last_open_time: int | None = None
     warmed: int = 0
+    ready: bool = False   # True once initial history is seeded -> allowed to trade
 
     def on_closed_candle(self, c: Candle) -> None:
         self.h1_bucket.append(c)
@@ -122,6 +123,7 @@ class LiveTrader:
                                 st.detector.update(candle)
                                 st.warmed += 1
                             st.last_open_time = candles[-2].time if len(candles) >= 2 else None
+                            st.ready = True   # history seeded -> this symbol may trade
                             print(f"Seeded {s}: {st.warmed} candles, bias={st.bias()}")
                         first = False
                         print(f"Polling every {POLL_SECONDS}s for newly-closed 15m candles. "
@@ -177,7 +179,7 @@ class LiveTrader:
             self.current_day = day
             self.day_start_balance = self.balance
 
-        if setup is None or st.warmed < WARMUP:
+        if setup is None or not st.ready:
             return
         if self.position is not None:
             return  # one position at a time
@@ -300,8 +302,14 @@ class LiveTrader:
 
 
 def main(symbols: list[str] | None = None, place_orders: bool = False) -> None:
+    import os
     syms = symbols or ["cryBTCUSD", "R_75"]  # BTC + V75
     trader = LiveTrader(syms, place_orders=place_orders)
+    # If a PORT is set (Render web service), expose the read-only dashboard API.
+    port = int(os.environ.get("PORT", "0") or 0)
+    if port:
+        from .api import start_api_server
+        start_api_server(trader, _now(), port)
     try:
         asyncio.run(trader.run())
     except KeyboardInterrupt:

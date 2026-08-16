@@ -5,11 +5,12 @@
 # Secrets (DERIV_API_TOKEN, DERIV_APP_ID) are NOT in this file — set them in the
 # Render dashboard (marked `sync: false` below so Render prompts for them).
 services:
-  - type: worker
+  - type: web               # web (not worker) so the dashboard API gets a public URL
     name: slp-trading-bot
     runtime: python
     plan: starter            # paid tier: required for always-on + a disk
     autoDeploy: false        # deploy manually so you control when it restarts
+    healthCheckPath: /       # the bot's API returns "ok" here
     buildCommand: pip install -r requirements.txt
     startCommand: python -m slp.live --live-demo
     envVars:

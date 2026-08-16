@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HD Bot Cockpit</title>
+<meta name="description" content="Live cockpit for the SLP trading bot on Deriv." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="./styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="bg" aria-hidden="true"></canvas>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">HD</span>
+    <div>
+      <div class="brand-name">HD&nbsp;Bot</div>
+      <div class="brand-sub">SLP · Structure · Liquidity · POI</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="status-pill" id="statusPill" data-state="loading">
+      <span class="dot"></span><span id="statusText">connecting…</span>
+    </div>
+    <button class="gear" id="settingsBtn" title="Data source" aria-label="Settings">⚙</button>
+  </div>
+</header>
+
+<main>
+  <!-- HERO -->
+  <section class="hero glass">
+    <div class="hero-left">
+      <div class="eyebrow">Account balance</div>
+      <div class="balance"><span class="cur">$</span><span id="balance">—</span></div>
+      <div class="hero-chips">
+        <span class="chip" id="pnlChip"><span id="pnlArrow">›</span> <span id="dailyPnl">—</span> today</span>
+        <span class="chip ghost" id="modeChip">—</span>
+        <span class="chip ghost" id="uptimeChip">uptime —</span>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="position-card" id="positionCard" data-open="false">
+        <div class="pc-label">Open position</div>
+        <div class="pc-flat" id="pcFlat">Flat — hunting for a setup</div>
+        <div class="pc-live" id="pcLive" hidden>
+          <div class="pc-head"><span class="pc-sym" id="pcSym">—</span><span class="pc-dir" id="pcDir">—</span></div>
+          <div class="pc-levels">
+            <div><span>Entry</span><b id="pcEntry">—</b></div>
+            <div><span>Stop</span><b id="pcStop">—</b></div>
+            <div><span>Target</span><b id="pcTarget">—</b></div>
+            <div><span>R:R</span><b id="pcRR">—</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STAT TILES -->
+  <section class="tiles">
+    <div class="tile glass"><div class="tile-k" id="winRate">—</div><div class="tile-l">Live win rate</div><div class="tile-spark" id="sparkWin"></div></div>
+    <div class="tile glass"><div class="tile-k" id="tradeCount">—</div><div class="tile-l">Trades closed</div></div>
+    <div class="tile glass"><div class="tile-k" id="totalR">—</div><div class="tile-l">Total R</div></div>
+    <div class="tile glass"><div class="tile-k" id="maxDD">—</div><div class="tile-l">Max drawdown</div></div>
+  </section>
+
+  <!-- SYMBOLS -->
+  <section class="symbols" id="symbols"></section>
+
+  <!-- COMPARE + FEED -->
+  <section class="split">
+    <div class="feed glass">
+      <div class="panel-head"><h2>Live trades</h2><span class="muted" id="feedCount">—</span></div>
+      <div class="feed-rows" id="feedRows"><div class="empty">No closed trades yet — the bot is selective. Quiet is normal.</div></div>
+    </div>
+    <div class="compare glass">
+      <div class="panel-head"><h2>Live vs backtest</h2></div>
+      <div class="cmp-row" data-sym="BTC"><span class="cmp-name">BTC</span>
+        <div class="cmp-bars"><div class="cmp-bar live"><i id="cmpBtcLive"></i><b id="cmpBtcLiveTxt">—</b></div>
+        <div class="cmp-bar bt"><i style="--w:57%"></i><b>57%</b></div></div></div>
+      <div class="cmp-row" data-sym="V75"><span class="cmp-name">V75</span>
+        <div class="cmp-bars"><div class="cmp-bar live"><i id="cmpV75Live"></i><b id="cmpV75LiveTxt">—</b></div>
+        <div class="cmp-bar bt"><i style="--w:55%"></i><b>55%</b></div></div></div>
+      <p class="cmp-note">Backtest win-rate is the bar to match over ~2 weeks of demo before risking real money.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span id="footStatus">—</span>
+  <span class="muted">HD Bot · demo account · not financial advice</span>
+</footer>
+
+<!-- SETTINGS -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-card glass">
+    <h2>Connect to your bot</h2>
+    <p class="muted">Paste your Render service URL (the one serving <code>/api/status</code>). It's saved in this browser.</p>
+    <input id="apiInput" type="url" placeholder="https://slp-trading-bot.onrender.com" />
+    <div class="modal-actions">
+      <button id="saveApi" class="primary">Connect</button>
+      <button id="closeModal" class="ghostbtn">Cancel</button>
+    </div>
+    <p class="muted small" id="modalHint"></p>
+  </div>
+</div>
+
+<script type="module" src="./scene.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
