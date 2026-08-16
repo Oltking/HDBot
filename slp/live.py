@@ -31,6 +31,7 @@ GRANULARITY = 900          # 15m
 H1_FACTOR = 4              # 4 x 15m = 1H
 WARMUP = 400               # seed candles before we trust signals
 POLL_SECONDS = 30          # how often to poll for a newly-closed candle
+HEARTBEAT_SECONDS = 1800   # log an "alive" line at least this often (30 min)
 
 
 def _fmt(ts: int) -> str:
@@ -89,6 +90,7 @@ class LiveTrader:
         self.current_day: str | None = None
         self.position: OpenPosition | None = None  # one at a time (matches backtest)
         self.broker: DerivV2 | None = None
+        self._last_heartbeat = 0
 
     async def run(self) -> None:
         mode = "LIVE-DEMO ORDERS" if self.place_orders else "PAPER (no orders)"
@@ -137,6 +139,7 @@ class LiveTrader:
                         for s in self.symbols:
                             candles = await self._fetch(ws, s, 5)
                             await self._ingest_poll(s, candles)
+                        self._maybe_heartbeat()
             except (websockets.ConnectionClosed, OSError, asyncio.TimeoutError) as e:
                 print(f"[{_fmt(_now())}] data socket dropped ({e}); reconnecting in 5s...")
                 await asyncio.sleep(5)
@@ -228,6 +231,21 @@ class LiveTrader:
                   f"mult={multiplier} buy=${b.get('buy_price')}")
         except DerivV2Error as e:
             print(f"   ORDER REJECTED: {e}")
+
+    def _maybe_heartbeat(self) -> None:
+        """Periodically log that the bot is alive + current bias, so a quiet
+        stretch is visibly a quiet stretch (not a silent crash)."""
+        now = _now()
+        if now - self._last_heartbeat < HEARTBEAT_SECONDS:
+            return
+        self._last_heartbeat = now
+        biases = " ".join(
+            f"{s}={(st.bias().name if st.bias() else 'none')}"
+            for s, st in self.states.items())
+        last = max((st.last_open_time or 0) for st in self.states.values())
+        pos = self.position.symbol if self.position else "flat"
+        print(f"[{_fmt(now)}] alive · {biases} · pos={pos} · "
+              f"bal=${self.balance:.2f} · last_candle={_fmt(last) if last else '—'}")
 
     async def _recover_position(self) -> None:
         """On startup, restore a position left open by a previous run so we don't
