@@ -48,6 +48,8 @@ def status_payload(trader, started_at: int) -> dict:
         "daily_pnl": round(trader.balance - trader.day_start_balance, 2),
         "risk_per_trade": RISK_PER_TRADE,
         "daily_stop": DAILY_STOP,
+        "timeframe": f"{trader.granularity//60}m/{trader.granularity*trader.bias_factor//60}m",
+        "sizing": ("min-stake" if getattr(trader, "min_stake_mode", False) else "risk-2pct"),
         "symbols": symbols,
         "position": pos,
         "last_candle": last,

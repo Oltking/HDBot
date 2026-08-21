@@ -27,11 +27,17 @@ from .strategy import SLPDetector
 from .structure import StructureTracker
 
 DATA_WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089"  # legacy, data only
-GRANULARITY = 900          # 15m
-H1_FACTOR = 4              # 4 x 15m = 1H
+GRANULARITY = 900          # default entry TF: 15m (overridable, see main())
+H1_FACTOR = 4              # default: 4 x 15m = 1H bias (overridable)
 WARMUP = 400               # seed candles before we trust signals
 POLL_SECONDS = 30          # how often to poll for a newly-closed candle
 HEARTBEAT_SECONDS = 1800   # log an "alive" line at least this often (30 min)
+
+# Timeframe presets: (entry granularity seconds, bias resample factor).
+#   htf = the original 15m/1H swing config.
+#   ltf = 5m entries with a 1H bias (12 x 5m = 1H) — the forward-test config.
+TIMEFRAMES = {"htf": (900, 4), "ltf": (300, 12)}
+ALL_SYMBOLS = ["cryBTCUSD", "R_75", "R_100", "R_25"]  # BTC + V75 + V100 + V25
 
 
 def _fmt(ts: int) -> str:
@@ -45,6 +51,7 @@ def _now() -> int:
 @dataclass
 class SymbolState:
     symbol: str
+    bias_factor: int = H1_FACTOR   # how many entry candles make one bias candle
     detector: SLPDetector = field(default_factory=SLPDetector)
     h1_tracker: StructureTracker = field(default_factory=StructureTracker)
     h1_bucket: list[Candle] = field(default_factory=list)
@@ -54,7 +61,7 @@ class SymbolState:
 
     def on_closed_candle(self, c: Candle) -> None:
         self.h1_bucket.append(c)
-        if len(self.h1_bucket) == H1_FACTOR:
+        if len(self.h1_bucket) == self.bias_factor:
             b = self.h1_bucket
             h1 = Candle(time=b[0].time, open=b[0].open,
                         high=max(x.high for x in b), low=min(x.low for x in b),
@@ -82,9 +89,15 @@ class OpenPosition:
 
 class LiveTrader:
     def __init__(self, symbols: list[str], balance: float = 1000.0,
-                 place_orders: bool = False):
+                 place_orders: bool = False, granularity: int = GRANULARITY,
+                 bias_factor: int = H1_FACTOR, min_stake_mode: bool = False,
+                 min_stake: float = 1.0):
         self.symbols = symbols
-        self.states = {s: SymbolState(s) for s in symbols}
+        self.granularity = granularity
+        self.bias_factor = bias_factor
+        self.min_stake_mode = min_stake_mode  # forward-test at the smallest size
+        self.min_stake = min_stake
+        self.states = {s: SymbolState(s, bias_factor=bias_factor) for s in symbols}
         self.balance = balance
         self.place_orders = place_orders
         self.day_start_balance = balance
@@ -96,7 +109,10 @@ class LiveTrader:
     async def run(self) -> None:
         mode = "LIVE-DEMO ORDERS" if self.place_orders else "PAPER (no orders)"
         print(f"[{_fmt(_now())}] SLP live starting — {mode}")
-        print(f"Symbols: {', '.join(self.symbols)} | risk {RISK_PER_TRADE*100:.0f}% | "
+        tf = f"{self.granularity//60}m entry / {self.granularity*self.bias_factor//60}m bias"
+        sizing = (f"min-stake ${self.min_stake:.2f}" if self.min_stake_mode
+                  else f"risk {RISK_PER_TRADE*100:.0f}%")
+        print(f"Symbols: {', '.join(self.symbols)} | {tf} | {sizing} | "
               f"daily stop {DAILY_STOP*100:.0f}%")
 
         if self.place_orders:
@@ -148,7 +164,7 @@ class LiveTrader:
 
     async def _fetch(self, ws, symbol: str, count: int) -> list[Candle]:
         await ws.send(json.dumps({
-            "ticks_history": symbol, "style": "candles", "granularity": GRANULARITY,
+            "ticks_history": symbol, "style": "candles", "granularity": self.granularity,
             "count": count, "end": "latest",
         }))
         while True:
@@ -213,11 +229,20 @@ class LiveTrader:
             if not mults:
                 print("   no multipliers available — skipping"); return
             multiplier = min(mults)
-            stake = risk_amount / (multiplier * f_sl)
-            stake = max(1.0, min(stake, self.balance))  # clamp to [min, balance]
+            if self.min_stake_mode:
+                # Forward-test size: smallest stake the broker allows. The SL/TP
+                # money then follows from the stake (loss at SL = stake*mult*f_sl).
+                stake = self.min_stake
+                sl_money = stake * multiplier * f_sl
+                tp_money = sl_money * setup.rr
+            else:
+                stake = risk_amount / (multiplier * f_sl)
+                stake = max(1.0, min(stake, self.balance))  # clamp to [min, balance]
+                sl_money = risk_amount
+                tp_money = risk_amount * setup.rr
             prop = await self.broker.proposal(
                 symbol, up, stake, multiplier,
-                stop_loss=risk_amount, take_profit=risk_amount * setup.rr)
+                stop_loss=sl_money, take_profit=tp_money)
             b = await self.broker.buy(prop["id"], max_price=prop["ask_price"])
             self.position = OpenPosition(
                 symbol=symbol, contract_id=str(b["contract_id"]), stake=stake,
@@ -303,8 +328,21 @@ class LiveTrader:
 
 def main(symbols: list[str] | None = None, place_orders: bool = False) -> None:
     import os
-    syms = symbols or ["cryBTCUSD", "R_75"]  # BTC + V75
-    trader = LiveTrader(syms, place_orders=place_orders)
+    # Timeframe preset (SLP_TIMEFRAME=ltf|htf), with fine-grained overrides.
+    preset = os.environ.get("SLP_TIMEFRAME", "ltf").lower()
+    gran, factor = TIMEFRAMES.get(preset, TIMEFRAMES["ltf"])
+    gran = int(os.environ.get("SLP_ENTRY_GRAN", gran))
+    factor = int(os.environ.get("SLP_BIAS_FACTOR", factor))
+    # Symbols: SLP_SYMBOLS="cryBTCUSD,R_75,..." — default all four.
+    env_syms = os.environ.get("SLP_SYMBOLS", "").strip()
+    syms = symbols or ([s.strip() for s in env_syms.split(",") if s.strip()] or ALL_SYMBOLS)
+    # Sizing: SLP_STAKE_MODE=min for the smallest-size forward test (default),
+    # anything else uses the 2%-risk model. SLP_MIN_STAKE sets the stake ($).
+    min_stake_mode = os.environ.get("SLP_STAKE_MODE", "min").lower() == "min"
+    min_stake = float(os.environ.get("SLP_MIN_STAKE", "1.0"))
+    trader = LiveTrader(syms, place_orders=place_orders, granularity=gran,
+                        bias_factor=factor, min_stake_mode=min_stake_mode,
+                        min_stake=min_stake)
     # If a PORT is set (Render web service), expose the read-only dashboard API.
     port = int(os.environ.get("PORT", "0") or 0)
     if port:

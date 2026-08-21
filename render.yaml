@@ -22,6 +22,14 @@ services:
         value: /data/logs
       - key: SLP_STATE_DIR      # open-position state -> persistent disk
         value: /data/state
+      - key: SLP_TIMEFRAME      # ltf = 5m entry / 1H bias forward-test
+        value: ltf
+      - key: SLP_SYMBOLS        # BTC + V75 + V100 + V25
+        value: cryBTCUSD,R_75,R_100,R_25
+      - key: SLP_STAKE_MODE     # smallest size — this is a data-collection run
+        value: min
+      - key: SLP_MIN_STAKE      # $ stake per trade (Deriv multiplier minimum)
+        value: "1.0"
       - key: DERIV_API_TOKEN    # set in dashboard (secret)
         sync: false
       - key: DERIV_APP_ID       # set in dashboard

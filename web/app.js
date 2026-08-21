@@ -4,6 +4,8 @@
 const SYMS = {
   cryBTCUSD: { name: "BTC", tag: "Bitcoin", glow: "#F7931A" },
   R_75:      { name: "V75", tag: "Volatility 75", glow: "#22E3FF" },
+  R_100:     { name: "V100", tag: "Volatility 100", glow: "#B4FF3D" },
+  R_25:      { name: "V25", tag: "Volatility 25", glow: "#FF3D9A" },
   frxXAUUSD: { name: "GOLD", tag: "XAU/USD", glow: "#FFD23D" },
 };
 const $ = (id) => document.getElementById(id);
