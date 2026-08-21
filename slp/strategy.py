@@ -173,6 +173,12 @@ class SLPDetector:
         fill: Setup | None = None
         survivors: list[_Pending] = []
         for p in self.working:
+            # Bias can flip (e.g. a pump) after an order was registered. A resting
+            # order that now opposes the 1H bias is stale — cancel it rather than
+            # let it fill counter-trend. (The registration-time gate is not enough:
+            # it only reflects the bias at BOS, not at fill.)
+            if self.bias is not None and p.direction is not self.bias:
+                continue
             entry = p.ob.entry
             if p.direction is Dir.LONG:
                 reached_50 = candle.low <= p.retrace_level
